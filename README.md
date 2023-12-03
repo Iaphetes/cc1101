@@ -15,6 +15,7 @@
 
 ## TODO
 
+- [ ] Update embedded-hal
 - [ ] Sending data, but only have one module.
 
 ## License
