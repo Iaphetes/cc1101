@@ -33,6 +33,8 @@ pub enum Command {
     PATABLE = 0x3E,
     /// FIFO Access
     FIFO = 0x3F,
+    /// FIFO BURST FLAG
+    BURSTFLG = 0x40,
 }
 
 impl Command {

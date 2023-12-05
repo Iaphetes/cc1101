@@ -1,7 +1,7 @@
 //! Low level unrestricted access to the CC1101 radio chip.
-use hal::blocking::spi::{Transfer, Write};
+use hal::blocking::spi::{Transfer, Write, WriteIter};
 use hal::digital::v2::OutputPin;
-
+use heapless::Vec;
 #[macro_use]
 mod macros;
 mod access;
@@ -38,6 +38,7 @@ where
             spi: spi,
             cs: cs,
         };
+
         Ok(cc1101)
     }
 
@@ -88,6 +89,20 @@ where
         Ok(())
     }
 
+    pub fn write_burst<R>(&mut self, reg: R, bytes: &mut [u8]) -> Result<(), Error<SpiE, GpioE>>
+    where
+        R: Into<Register>,
+    {
+        let mut payload: Vec<u8, 64> = Vec::new();
+        payload.push(reg.into().waddr() | Command::BURSTFLG.addr());
+        payload.extend(bytes.iter().cloned());
+        let mut payload_u8 = payload.as_slice();
+        self.cs.set_low().map_err(Error::Gpio)?;
+
+        self.spi.write(&mut payload_u8).map_err(Error::Spi)?;
+        self.cs.set_high().map_err(Error::Gpio)?;
+        Ok(())
+    }
     pub fn modify_register<R, F>(&mut self, reg: R, f: F) -> Result<(), Error<SpiE, GpioE>>
     where
         R: Into<Register> + Copy,

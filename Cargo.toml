@@ -11,4 +11,5 @@ repository = "https://github.com/dsvensson/cc1101"
 edition = "2018"
 
 [dependencies]
-embedded-hal = "0.2.3"
+embedded-hal = {version = "0.2.3", features = ["unproven"]}
+heapless = "0.8"

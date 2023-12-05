@@ -13,7 +13,7 @@ use lowlevel::convert::*;
 use lowlevel::registers::*;
 use lowlevel::types::*;
 use rssi::rssi_to_dbm;
-
+const MAX_TX: usize = 256;
 /// CC1101 errors.
 #[derive(Debug)]
 pub enum Error<SpiE, GpioE> {
@@ -266,6 +266,51 @@ where
                 Err(err)
             }
         }
+    }
+
+    fn transmit(&mut self, payload: &mut [u8], len: u8) {
+        // let ret: u8 = PAYLOAD_TRANSMITTED;
+
+        if len > 0 && len < 62 {
+            self.0.write_register(Config::IOCFG0, 0x09);
+            let mut tx_buffer: [u8; 64] = [0; 64];
+            tx_buffer[0] = len;
+            tx_buffer[1..].copy_from_slice(payload);
+            // memcpy(tx_buffer + 1, payload, len);
+            // cc1101_idle_mode();
+            self.set_radio_mode(RadioMode::Idle);
+            // cc1101_write_strobe(SFTX); // Flush TX_FIFO
+            self.0.write_strobe(Command::SFTX);
+            // funcptr.delay_us(100); /TODO
+            // cc1101_receive_mode();
+            self.set_radio_mode(RadioMode::Receive);
+            self.0.write_burst(Command::FIFO, &mut tx_buffer);
+            // funcptr.delay_ms(1); // Wait for CCA to be asserted //TODO
+
+            // if (funcptr.gdo0()) { //TODO
+            // Listen before Talk
+            self.0.write_register(Config::IOCFG0, 0x06); //TODO ???
+                                                         // cc1101_write_register(IOCFG0, 0x06);
+            self.0.write_strobe(Command::STX); // Sends Data
+
+        // // Wait for GDO2 to be set -> sync transmitted
+        // while (!funcptr.gdo2())
+        // 	;
+        //
+        // // Wait for GDO2 to be cleared -> end of packet
+        // while (funcptr.gdo2())
+        // 	;
+        // } else { //TODO
+        //     cc1101_idle_mode();
+        //     cc1101_write_strobe(SFTX); // Flush TX_FIFO
+        //     funcptr.delay_us(100);
+        //     // ret = NOISE_ON_CHANNEL;
+        // }
+        } else {
+            // ret = PAYLOAD_LEN_OUT_OF_RANGE;
+        }
+
+        // return ret;
     }
 }
 
