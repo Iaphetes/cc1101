@@ -3,7 +3,7 @@
 extern crate embedded_hal as hal;
 
 use hal::blocking::spi::{Transfer, Write};
-use hal::digital::v2::OutputPin;
+use hal::digital::v2::{InputPin, OutputPin};
 
 #[macro_use]
 pub mod lowlevel;
@@ -37,15 +37,16 @@ impl<SpiE, GpioE> From<lowlevel::Error<SpiE, GpioE>> for Error<SpiE, GpioE> {
 }
 
 /// High level API for interacting with the CC1101 radio chip.
-pub struct Cc1101<SPI, CS>(lowlevel::Cc1101<SPI, CS>);
+pub struct Cc1101<SPI, CS, GDO2>(lowlevel::Cc1101<SPI, CS, GDO2>);
 
-impl<SPI, CS, SpiE, GpioE> Cc1101<SPI, CS>
+impl<SPI, CS, GDO2, SpiE, GpioE> Cc1101<SPI, CS, GDO2>
 where
     SPI: Transfer<u8, Error = SpiE> + Write<u8, Error = SpiE>,
     CS: OutputPin<Error = GpioE>,
+    GDO2: InputPin<Error = GpioE>,
 {
-    pub fn new(spi: SPI, cs: CS) -> Result<Self, Error<SpiE, GpioE>> {
-        Ok(Cc1101(lowlevel::Cc1101::new(spi, cs)?))
+    pub fn new(spi: SPI, cs: CS, gdo2: GDO2) -> Result<Self, Error<SpiE, GpioE>> {
+        Ok(Cc1101(lowlevel::Cc1101::new(spi, cs, gdo2)?))
     }
 
     pub fn set_frequency(&mut self, hz: u64) -> Result<(), Error<SpiE, GpioE>> {
@@ -268,48 +269,66 @@ where
         }
     }
 
-    fn transmit(&mut self, payload: &mut [u8], len: u8) {
+    pub fn transmit(&mut self, payload: &[u8], len: u8) -> Result<(), Error<SpiE, GpioE>> {
         // let ret: u8 = PAYLOAD_TRANSMITTED;
 
         if len > 0 && len < 62 {
-            self.0.write_register(Config::IOCFG0, 0x09);
+            self.0.write_register(Config::IOCFG0, 0x09)?;
+            //
             let mut tx_buffer: [u8; 64] = [0; 64];
             tx_buffer[0] = len;
             tx_buffer[1..].copy_from_slice(payload);
-            // memcpy(tx_buffer + 1, payload, len);
-            // cc1101_idle_mode();
-            self.set_radio_mode(RadioMode::Idle);
-            // cc1101_write_strobe(SFTX); // Flush TX_FIFO
-            self.0.write_strobe(Command::SFTX);
+            // // memcpy(tx_buffer + 1, payload, len);
+            // // cc1101_idle_mode();
+            self.set_radio_mode(RadioMode::Idle)?;
+            // // cc1101_write_strobe(SFTX); // Flush TX_FIFO
+            self.0.write_strobe(Command::SFTX)?;
+            // self.set_radio_mode(RadioMode::Idle)?;
             // funcptr.delay_us(100); /TODO
             // cc1101_receive_mode();
-            self.set_radio_mode(RadioMode::Receive);
-            self.0.write_burst(Command::FIFO, &mut tx_buffer);
+            self.set_radio_mode(RadioMode::Receive)?;
+            self.0.write_burst(Command::FIFO, &mut tx_buffer)?;
             // funcptr.delay_ms(1); // Wait for CCA to be asserted //TODO
 
+            // for i in 0..100_000_000 {}
             // if (funcptr.gdo0()) { //TODO
             // Listen before Talk
-            self.0.write_register(Config::IOCFG0, 0x06); //TODO ???
-                                                         // cc1101_write_register(IOCFG0, 0x06);
-            self.0.write_strobe(Command::STX); // Sends Data
+            self.0.write_register(Config::IOCFG0, 0x06)?; //TODO ???
+                                                          // cc1101_write_register(IOCFG0, 0x06);
+                                                          // self.0.write_strobe(Command::STX)?; // Sends Data
 
-        // // Wait for GDO2 to be set -> sync transmitted
-        // while (!funcptr.gdo2())
-        // 	;
-        //
-        // // Wait for GDO2 to be cleared -> end of packet
-        // while (funcptr.gdo2())
-        // 	;
-        // } else { //TODO
-        //     cc1101_idle_mode();
-        //     cc1101_write_strobe(SFTX); // Flush TX_FIFO
-        //     funcptr.delay_us(100);
-        //     // ret = NOISE_ON_CHANNEL;
-        // }
+            self.set_radio_mode(RadioMode::Transmit)?;
+            // // Wait for GDO2 to be set -> sync transmitted
+            let mut waiting_for_sync = true;
+            while waiting_for_sync {
+                if let Ok(gdo2_state) = self.0.gdo2.is_low() {
+                    waiting_for_sync = gdo2_state;
+                }
+            }
+            let mut waiting_for_transmit = true;
+            while waiting_for_transmit {
+                if let Ok(gdo2_state) = self.0.gdo2.is_low() {
+                    waiting_for_transmit = !gdo2_state;
+                }
+            }
+            self.set_radio_mode(RadioMode::Idle)?;
+            // while (!funcptr.gdo2())
+            // 	;
+            //
+            // // Wait for GDO2 to be cleared -> end of packet
+            // while (funcptr.gdo2())
+            // 	;
+            // } else { //TODO
+            //     cc1101_idle_mode();
+            //     cc1101_write_strobe(SFTX); // Flush TX_FIFO
+            //     funcptr.delay_us(100);
+            //     // ret = NOISE_ON_CHANNEL;
+            // }
         } else {
             // ret = PAYLOAD_LEN_OUT_OF_RANGE;
         }
 
+        Ok(())
         // return ret;
     }
 }

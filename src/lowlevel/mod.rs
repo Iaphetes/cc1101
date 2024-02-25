@@ -15,11 +15,11 @@ use self::registers::*;
 
 pub const FXOSC: u64 = 26_000_000;
 
-pub struct Cc1101<SPI, CS> {
+pub struct Cc1101<SPI, CS, GDO2> {
     pub(crate) spi: SPI,
     pub(crate) cs: CS,
-    //    gdo0: GDO0,
-    //    gdo2: GDO2,
+    // gdo0: GDO0,
+    pub(crate) gdo2: GDO2,
 }
 
 #[derive(Debug)]
@@ -28,15 +28,16 @@ pub enum Error<SpiE, GpioE> {
     Gpio(GpioE),
 }
 
-impl<SPI, CS, SpiE, GpioE> Cc1101<SPI, CS>
+impl<SPI, CS, GDO2, SpiE, GpioE> Cc1101<SPI, CS, GDO2>
 where
     SPI: Transfer<u8, Error = SpiE> + Write<u8, Error = SpiE>,
     CS: OutputPin<Error = GpioE>,
 {
-    pub fn new(spi: SPI, cs: CS) -> Result<Self, Error<SpiE, GpioE>> {
+    pub fn new(spi: SPI, cs: CS, gdo2: GDO2) -> Result<Self, Error<SpiE, GpioE>> {
         let cc1101 = Cc1101 {
-            spi: spi,
-            cs: cs,
+            spi,
+            cs,
+            gdo2,
         };
 
         Ok(cc1101)
@@ -93,13 +94,16 @@ where
     where
         R: Into<Register>,
     {
-        let mut payload: Vec<u8, 64> = Vec::new();
-        payload.push(reg.into().waddr() | Command::BURSTFLG.addr());
-        payload.extend(bytes.iter().cloned());
-        let mut payload_u8 = payload.as_slice();
+        // let mut payload: Vec<u8, 64> = Vec::new();
+        // payload.push(reg.into().waddr() | Command::BURSTFLG.addr());
+        // payload.extend(bytes.iter().cloned());
+
+        let mut payload_u8: [u8; 64] = [0; 64];
+        payload_u8[0] = reg.into().waddr() | Command::BURSTFLG.addr();
+        payload_u8[1..bytes.len() + 1].copy_from_slice(&bytes);
         self.cs.set_low().map_err(Error::Gpio)?;
 
-        self.spi.write(&mut payload_u8).map_err(Error::Spi)?;
+        self.spi.write(&mut payload_u8[..bytes.len()]).map_err(Error::Spi)?;
         self.cs.set_high().map_err(Error::Gpio)?;
         Ok(())
     }
